@@ -61,5 +61,19 @@ def delivery_isg(err,msg):
     else:
         logger.info(f"Message delivered to {msg.topic()} [{msg.partition()}]")
 
+# Produce log entries to Kafka
+def produce_logs(**context):
+    """Produce log entries to Kafka.
+    2. Generate data and send the data to the kafka topic been created
+    3. Ensure all messages are flushed 
+    """
+    kafka_config = context['task_instance'].xcom_pull(task_ids='get_kafka_config')
+    producer = create_kafka_producer(kafka_config)
+    topic = "stream"
+    for _ in range(1000):  
+        log_entry = Generate_data()
+        producer.produce(topic, value=log_entry, callback=delivery_isg)
+        logger.info(f"Produced log entry: {log_entry}")
+    producer.flush()
 
 
