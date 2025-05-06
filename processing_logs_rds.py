@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from confluent_kafka import Consumer, KafkaException
+from confluent_kafka import KafkaError
 # from elasticsearch import Elasticsearch
 # from elasticsearch.helpers import bulk
 import psycopg2
@@ -33,6 +34,62 @@ def parse_log_entry(log_entry):
     return data
 
 
+
+# Function to create connection to AWS RDS PostgreSQL
+def create_rds_connection():
+    """Establish a connection to AWS RDS PostgreSQL."""
+    secrets = create_secret_manager("MWAA_Secrets_V2")
+
+    try:
+        conn = psycopg2.connect(
+            host=secrets['RDS_HOST'],
+            database=secrets['RDS_DB_NAME'],
+            user=secrets['RDS_USER'],
+            password=secrets['RDS_PASSWORD'],
+            port=secrets['RDS_PORT']
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"Error connecting to PostgreSQL: {e}")
+        return None
+
+# Function to insert parsed data into PostgreSQL
+def insert_data_into_rds(data):
+    """Insert the parsed log data into the PostgreSQL database."""
+    conn = create_rds_connection()
+    if conn is None:
+        logger.error("Failed to connect to RDS. Aborting insertion.")
+        return
+
+    cursor = conn.cursor()
+
+    insert_query = """
+    INSERT INTO logs (ip, timestamp, method, endpoint, protocol, status, size, referrer, user_agent)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+    """
+    values = (
+        data['ip'],
+        data['@timestamp'],
+        data['method'],
+        data['endpoint'],
+        data['protocol'],
+        data['status'],
+        data['size'],
+        data['referrer'],
+        data['user_agent']
+    )
+
+    try:
+        cursor.execute(insert_query, values)
+        conn.commit()
+        logger.info(f"Inserted log data for IP {data['ip']} into RDS.")
+    except Exception as e:
+        logger.error(f"Error inserting data into RDS: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def consume_and_index_logs(**context):
     """Consume logs from Kafka and index to Elasticsearch."""
     secrets = create_secret_manager("MWAA_Secrets_V2")
@@ -47,6 +104,35 @@ def consume_and_index_logs(**context):
         "group.id": "airflow_log_indexer",
         "auto.offset.reset": "latest"
     }
+
+
+    consumer = Consumer(consumer_config)
+    consumer.subscribe([secrets['KAFKA_TOPIC']])
+
+    try:
+        while True:
+            msg = consumer.poll(1.0) 
+            # If no messages continue the polling 
+            if msg is None:
+                continue  
+            if msg.error():
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue  # End of partition reached
+                else:
+                    raise KafkaException(msg.error())
+
+            # Message received successfully
+            message_value = msg.value().decode('utf-8')
+            data = parse_log_entry(message_value)
+
+            if data:
+                # Insert the parsed log data into RDS
+                insert_data_into_rds(data)
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        consumer.close()
 
 
 
