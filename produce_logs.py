@@ -93,7 +93,33 @@ def read_config():
 
     return config
 
-# Set up Airflow DAG to run the producer function
+# Set up Airflow DAG 
+default_args = {
+    'owner': 'airflow',
+    'start_date': datetime(2025, 5, 6),
+    'retries': 1,
+}
 
+dag = DAG(
+    'kafka_log_streaming',
+    default_args=default_args,
+    description='Stream fake logs to Kafka',
+    schedule_interval=timedelta(minutes=5),  # Adjust schedule as needed
+)
+
+get_kafka_config = PythonOperator(
+    task_id='get_kafka_config',
+    python_callable=read_config,
+    dag=dag,
+)
+
+produce_logs_task = PythonOperator(
+    task_id='produce_logs',
+    python_callable=produce_logs,
+    provide_context=True,
+    dag=dag,
+)
+
+get_kafka_config >> produce_logs_task
 
 
