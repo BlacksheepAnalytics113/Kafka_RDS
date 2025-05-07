@@ -90,6 +90,7 @@ def insert_data_into_rds(data):
         conn.close()
 
 
+
 def consume_and_index_logs(**context):
     """Consume logs from Kafka and index to Elasticsearch."""
     secrets = create_secret_manager("MWAA_Secrets_V2")
@@ -134,6 +135,32 @@ def consume_and_index_logs(**context):
     finally:
         consumer.close()
 
+# DAG Configuration
+default_args = {
+    'owner': 'Data Mastery Lab',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'retries': 1,
+    'retry_delay': timedelta(seconds=5),
+}
+
+dag = DAG(
+    'log_consumer_pipeline',
+    default_args=default_args,
+    description='Consume logs from Kafka and index to Elasticsearch',
+    schedule_interval='*/2 * * * *',
+    start_date=datetime(2025, 5, 5),
+    catchup=False,
+    tags=['logs', 'kafka', 'elasticsearch']
+)
+
+consume_logs_task = PythonOperator(
+    task_id='consume_and_index_logs',
+    python_callable=consume_and_index_logs,
+    dag=dag,
+)
+
+consume_logs_task
 
 
 
