@@ -3,13 +3,9 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from confluent_kafka import Consumer, KafkaException
 from confluent_kafka import KafkaError
-# from elasticsearch import Elasticsearch
-# from elasticsearch.helpers import bulk
 import psycopg2
 from produce_logs import create_secret_manager
-import json
 import logging
-import boto3
 import re
 
 logger = logging.getLogger(__name__)
